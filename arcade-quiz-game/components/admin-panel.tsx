@@ -57,14 +57,45 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     loadData()
   }, [])
 
-  const loadData = () => {
-    // Load leaderboard
-    const savedLeaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]")
-    setLeaderboard(
-      savedLeaderboard.sort(
-        (a: LeaderboardEntry, b: LeaderboardEntry) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-      ),
-    )
+  const loadData = async () => {
+    // Load leaderboard from backend API
+    try {
+      const response = await fetch('/api/admin/leaderboard')
+      const data = await response.json()
+      
+      if (data.success) {
+        setLeaderboard(data.data.leaderboard.map((entry: any) => ({
+          id: entry.sessionId,
+          teamName: entry.teamName,
+          difficulty: entry.difficulty,
+          quizScore: entry.quizScore,
+          mineScore: entry.mineScore,
+          proScore: entry.proScore,
+          totalQuestions: entry.totalQuestions || 8,
+          timestamp: entry.startedAt,
+          canPlayMine: entry.canPlayMine,
+          mineGameCompleted: entry.status === 'mine_completed' || entry.status === 'finished'
+        })))
+      } else {
+        console.error('Failed to load leaderboard:', data.message)
+        // Fallback to localStorage
+        const savedLeaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]")
+        setLeaderboard(
+          savedLeaderboard.sort(
+            (a: LeaderboardEntry, b: LeaderboardEntry) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+          ),
+        )
+      }
+    } catch (error) {
+      console.error('Error loading leaderboard:', error)
+      // Fallback to localStorage
+      const savedLeaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]")
+      setLeaderboard(
+        savedLeaderboard.sort(
+          (a: LeaderboardEntry, b: LeaderboardEntry) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        ),
+      )
+    }
 
     // Load timer settings
     const savedTimers = JSON.parse(localStorage.getItem("timer-settings") || "{}")
