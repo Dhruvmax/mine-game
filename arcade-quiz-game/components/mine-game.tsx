@@ -93,7 +93,7 @@ export default function MineGame({ difficulty, onBack, onComplete, teamName, gam
     setProsFound(0)
   }
 
-  const handleCellClick = (row: number, col: number) => {
+  const handleCellClick = async (row: number, col: number) => {
     if (gameStatus !== "playing" || attemptsLeft <= 0) return
     if (grid[row][col].toString().includes("revealed")) return
 
@@ -104,14 +104,19 @@ export default function MineGame({ difficulty, onBack, onComplete, teamName, gam
     const newAttemptsLeft = attemptsLeft - 1
     setAttemptsLeft(newAttemptsLeft)
 
+    let newMineScore = mineScore
+    let newProScore = proScore
+
     if (cellType === "mine") {
       newGrid[row][col] = "revealed-mine"
       setMinesFound((prev) => prev + 1)
-      setMineScore((prev) => prev + 100)
+      newMineScore += 100
+      setMineScore(newMineScore)
     } else if (cellType === "pro") {
       newGrid[row][col] = "revealed-pro"
       setProsFound((prev) => prev + 1)
-      setProScore((prev) => prev + 200)
+      newProScore += 200
+      setProScore(newProScore)
     } else if (cellType === "blank") {
       newGrid[row][col] = "revealed-blank"
       // No score change for blank
@@ -119,11 +124,33 @@ export default function MineGame({ difficulty, onBack, onComplete, teamName, gam
 
     setGrid(newGrid)
 
+    // Submit action to backend if gameSession is available
+    if (gameSession) {
+      try {
+        await fetch('/api/mine-game/action', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sessionId: gameSession,
+            cellX: row,
+            cellY: col,
+            cellType: cellType,
+            action: 'reveal'
+          })
+        })
+      } catch (error) {
+        console.error('Failed to submit mine game action:', error)
+        // Continue with local tracking as fallback
+      }
+    }
+
     // Check if no attempts left
     if (newAttemptsLeft <= 0) {
       setGameStatus("won") // Game ends when attempts are exhausted
       setTimeout(() => {
-        onComplete(mineScore + (cellType === "mine" ? 100 : 0), proScore + (cellType === "pro" ? 200 : 0))
+        onComplete(newMineScore, newProScore)
       }, 2000)
     }
   }
