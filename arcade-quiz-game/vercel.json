@@ -1,18 +1,7 @@
 {
-  "buildCommand": "pnpm run build",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
-  "installCommand": "pnpm install",
-  "devCommand": "pnpm dev",
   "functions": {
     "app/**/*.tsx": {
       "maxDuration": 30
     }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/"
-    }
-  ]
+  }
 } 
