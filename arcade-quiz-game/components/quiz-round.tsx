@@ -14,15 +14,21 @@ interface Question {
   correct: number
 }
 
-interface QuizRoundProps {
-  difficulty: "easy" | "medium" | "hard"
-  onComplete: (score: number, total: number) => void
-  onExit: () => void
-}
-
-const getQuestions = (difficulty: string): Question[] => {
-  const questions = JSON.parse(localStorage.getItem("quiz-questions") || "{}")
-  return questions[difficulty] || getDefaultQuestions(difficulty)
+const getQuestions = async (difficulty: string): Promise<Question[]> => {
+  try {
+    const response = await fetch(`/api/quiz/questions?difficulty=${difficulty}`)
+    const data = await response.json()
+    
+    if (data.success) {
+      return data.data.questions
+    } else {
+      console.error('Failed to fetch questions:', data.message)
+      return getDefaultQuestions(difficulty)
+    }
+  } catch (error) {
+    console.error('Error fetching questions:', error)
+    return getDefaultQuestions(difficulty)
+  }
 }
 
 const getDefaultQuestions = (difficulty: string): Question[] => {
@@ -203,8 +209,16 @@ const getDefaultQuestions = (difficulty: string): Question[] => {
   return questionSets[difficulty as keyof typeof questionSets] || questionSets.easy
 }
 
-export default function QuizRound({ difficulty, onComplete, onExit }: QuizRoundProps) {
-  const [questions] = useState<Question[]>(getQuestions(difficulty))
+interface QuizRoundProps {
+  difficulty: "easy" | "medium" | "hard"
+  onComplete: (score: number, total: number) => void
+  onExit: () => void
+  sessionId?: string
+}
+
+export default function QuizRound({ difficulty, onComplete, onExit, sessionId }: QuizRoundProps) {
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [loading, setLoading] = useState(true)
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null)
   const [score, setScore] = useState(0)
@@ -216,6 +230,16 @@ export default function QuizRound({ difficulty, onComplete, onExit }: QuizRoundP
   const [answers, setAnswers] = useState<(number | null)[]>(new Array(8).fill(null))
 
   useEffect(() => {
+    const loadQuestions = async () => {
+      setLoading(true)
+      const fetchedQuestions = await getQuestions(difficulty)
+      setQuestions(fetchedQuestions)
+      setAnswers(new Array(fetchedQuestions.length).fill(null))
+      setLoading(false)
+    }
+
+    loadQuestions()
+
     const savedTimers = JSON.parse(localStorage.getItem("timer-settings") || "{}")
     const initialTime = savedTimers[difficulty] || 300
     setTimeLeft(initialTime)
@@ -250,11 +274,34 @@ export default function QuizRound({ difficulty, onComplete, onExit }: QuizRoundP
     onComplete(finalScore, questions.length)
   }
 
-  const handleAnswerSelect = (answerIndex: number) => {
+  const handleAnswerSelect = async (answerIndex: number) => {
     setSelectedAnswer(answerIndex)
     const newAnswers = [...answers]
     newAnswers[currentQuestion] = answerIndex
     setAnswers(newAnswers)
+
+    // Submit answer to backend if sessionId is available
+    if (sessionId && questions[currentQuestion]) {
+      try {
+        await fetch('/api/quiz/submit-answer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sessionId,
+            questionId: questions[currentQuestion].id,
+            question: questions[currentQuestion].question,
+            options: questions[currentQuestion].options,
+            selectedAnswer: answerIndex,
+            correctAnswer: questions[currentQuestion].correct
+          })
+        })
+      } catch (error) {
+        console.error('Failed to submit answer:', error)
+        // Continue with local storage as fallback
+      }
+    }
   }
 
   const handleNext = () => {
