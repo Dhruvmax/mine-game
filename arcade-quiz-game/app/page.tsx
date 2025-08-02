@@ -32,12 +32,7 @@ export default function HomePage() {
     setGameSession(Date.now().toString())
   }, [])
 
-  const checkTeamNameExists = (name: string): boolean => {
-    const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]")
-    return leaderboard.some((entry: any) => entry.teamName.toLowerCase() === name.toLowerCase())
-  }
-
-  const handleAccessCode = () => {
+  const handleAccessCode = async () => {
     const code = accessCode.toLowerCase()
 
     if (code === ACCESS_CODES.admin.toLowerCase()) {
@@ -46,78 +41,131 @@ export default function HomePage() {
     }
 
     const upperCode = accessCode.toUpperCase()
-    const difficultyMap = {
-      [ACCESS_CODES.easy]: "easy" as const,
-      [ACCESS_CODES.medium]: "medium" as const,
-      [ACCESS_CODES.hard]: "hard" as const,
+    
+    if (!teamName.trim()) {
+      alert("Please enter your team name first!")
+      return
     }
 
-    const selectedDifficulty = difficultyMap[upperCode]
-    if (selectedDifficulty) {
-      if (!teamName.trim()) {
-        alert("Please enter your team name first!")
-        return
-      }
+    try {
+      // Register team with backend
+      const response = await fetch('/api/teams/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          teamName: teamName.trim(),
+          accessCode: upperCode
+        })
+      })
 
-      // Check if team name already exists
-      if (checkTeamNameExists(teamName.trim())) {
-        alert("This team name has already been used! Please choose a different team name.")
-        return
-      }
+      const data = await response.json()
 
-      setDifficulty(selectedDifficulty)
-      setCurrentMode("quiz")
-      setQuizCompleted(false)
-      setQuizScore(0)
-      setCanPlayMine(false)
-    } else {
-      alert("Invalid access code! Try again.")
+      if (data.success) {
+        if (data.data.difficulty === 'admin') {
+          setCurrentMode("admin")
+          return
+        }
+
+        // Set session data
+        setGameSession(data.data.sessionId)
+        setDifficulty(data.data.difficulty)
+        setCurrentMode("quiz")
+        setQuizCompleted(false)
+        setQuizScore(0)
+        setCanPlayMine(false)
+      } else {
+        alert(data.message || "Registration failed. Please try again.")
+      }
+    } catch (error) {
+      console.error('Registration error:', error)
+      alert("Network error. Please check your connection and try again.")
     }
   }
 
-  const handleQuizComplete = (score: number, totalQuestions: number) => {
+  const handleQuizComplete = async (score: number, totalQuestions: number) => {
     setQuizScore(score)
     setQuizCompleted(true)
 
-    // Updated requirements: Easy-6/8, Medium-5/8, Hard-4/8
-    const requirements = { easy: 6, medium: 5, hard: 4 }
-    const canPlay = difficulty && score >= requirements[difficulty]
-    setCanPlayMine(!!canPlay)
+    try {
+      // Complete quiz via backend API
+      const response = await fetch('/api/quiz/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: gameSession,
+          score,
+          totalQuestions
+        })
+      })
 
-    // Save to leaderboard with team name and new structure
-    const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]")
-    leaderboard.push({
-      id: gameSession,
-      teamName: teamName.trim(),
-      difficulty,
-      quizScore: score,
-      mineScore: 0,
-      proScore: 0,
-      totalQuestions,
-      timestamp: new Date().toISOString(),
-      canPlayMine: !!canPlay,
-      mineGameCompleted: false,
-    })
-    localStorage.setItem("leaderboard", JSON.stringify(leaderboard))
+      const data = await response.json()
 
-    // If qualified for mine game, auto-transition after 1.5 seconds
-    if (canPlay) {
-      setTimeout(() => {
-        setCurrentMode("mine")
-      }, 1500)
+      if (data.success) {
+        const canPlay = data.data.canPlayMine
+        setCanPlayMine(canPlay)
+
+        // If qualified for mine game, auto-transition after 1.5 seconds
+        if (canPlay) {
+          setTimeout(() => {
+            setCurrentMode("mine")
+          }, 1500)
+        }
+      } else {
+        console.error('Quiz completion error:', data.message)
+        // Fallback to local calculation
+        const requirements = { easy: 6, medium: 5, hard: 4 }
+        const canPlay = difficulty && score >= requirements[difficulty]
+        setCanPlayMine(!!canPlay)
+        
+        if (canPlay) {
+          setTimeout(() => {
+            setCurrentMode("mine")
+          }, 1500)
+        }
+      }
+    } catch (error) {
+      console.error('Quiz completion network error:', error)
+      // Fallback to local calculation
+      const requirements = { easy: 6, medium: 5, hard: 4 }
+      const canPlay = difficulty && score >= requirements[difficulty]
+      setCanPlayMine(!!canPlay)
+      
+      if (canPlay) {
+        setTimeout(() => {
+          setCurrentMode("mine")
+        }, 1500)
+      }
     }
   }
 
-  const handleMineGameComplete = (mineScore: number, proScore: number) => {
-    // Update the existing leaderboard entry with mine game results
-    const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]")
-    const entryIndex = leaderboard.findIndex((entry: any) => entry.id === gameSession)
+  const handleMineGameComplete = async (mineScore: number, proScore: number) => {
+    try {
+      // Complete mine game via backend API
+      const response = await fetch('/api/mine-game/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: gameSession,
+          finalMineScore: mineScore,
+          finalProScore: proScore
+        })
+      })
 
-    if (entryIndex !== -1) {
-      leaderboard[entryIndex].mineScore = mineScore
-      leaderboard[entryIndex].proScore = proScore
-      leaderboard[entryIndex].mineGameCompleted = true
-      localStorage.setItem("leaderboard", JSON.stringify(leaderboard))
+      const data = await response.json()
+
+      if (data.success) {
+        console.log('Mine game completed successfully:', data.data)
+      } else {
+        console.error('Mine game completion error:', data.message)
+      }
+    } catch (error) {
+      console.error('Mine game completion network error:', error)
     }
   }
 
@@ -151,7 +199,7 @@ export default function HomePage() {
   }
 
   if (currentMode === "quiz") {
-    return <QuizRound difficulty={difficulty!} onComplete={handleQuizComplete} onExit={resetGame} />
+    return <QuizRound difficulty={difficulty!} onComplete={handleQuizComplete} onExit={resetGame} sessionId={gameSession} />
   }
 
   return (
